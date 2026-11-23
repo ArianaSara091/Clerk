@@ -1,0 +1,6 @@
+{
+  "name": "Guildspace",
+  "description": "A real-time community communication platform with guilds, text channels, direct messages, roles, friends, and live presence.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

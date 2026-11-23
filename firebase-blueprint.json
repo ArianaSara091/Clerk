@@ -1,0 +1,389 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Public Clerk user profile directory entry without PII.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "username": { "type": "string", "minLength": 3, "maxLength": 32, "pattern": "^[a-z0-9_.\\-]+$" },
+        "avatarUrl": { "type": "string", "maxLength": 500 },
+        "bio": { "type": "string", "maxLength": 240 },
+        "accentColor": { "type": "string", "minLength": 4, "maxLength": 16 },
+        "status": { "type": "string", "enum": ["online", "idle", "dnd", "offline"] },
+        "customStatus": { "type": "string", "maxLength": 80 },
+        "isVerified": { "type": "boolean" },
+        "twoFactorEnabled": { "type": "boolean" },
+        "linkedDiscord": { "type": "object" },
+        "visibility": { "type": "string", "enum": ["public"] },
+        "lastSeenAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "username", "avatarUrl", "bio", "accentColor", "status", "customStatus", "isVerified", "twoFactorEnabled", "linkedDiscord", "visibility", "lastSeenAt", "createdAt", "updatedAt"]
+    },
+    "UserPrivateAccount": {
+      "title": "UserPrivateAccount",
+      "description": "Private user account document containing isolated PII.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 160 },
+        "dateOfBirth": { "type": "string", "maxLength": 16 },
+        "notificationsEnabled": { "type": "boolean" },
+        "twoFactorEnabled": { "type": "boolean" },
+        "linkedDiscordEmail": { "type": "string", "maxLength": 160 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "dateOfBirth", "notificationsEnabled", "twoFactorEnabled", "linkedDiscordEmail", "updatedAt"]
+    },
+    "UsernameClaim": {
+      "title": "UsernameClaim",
+      "description": "Unique username reservation index for availability checks without PII.",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string", "minLength": 3, "maxLength": 32, "pattern": "^[a-z0-9_.\\-]+$" },
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "encryptedHint": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["username", "uid", "encryptedHint", "createdAt"]
+    },
+    "UserSession": {
+      "title": "UserSession",
+      "description": "Authenticated client session metadata for active session management.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "deviceLabel": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "rememberMe": { "type": "boolean" },
+        "revoked": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "lastActiveAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "uid", "deviceLabel", "rememberMe", "revoked", "createdAt", "lastActiveAt"]
+    },
+    "UserGuildLink": {
+      "title": "UserGuildLink",
+      "description": "Per-user membership index linking user to joined guilds.",
+      "type": "object",
+      "properties": {
+        "guildId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "guildName": { "type": "string", "minLength": 2, "maxLength": 60 },
+        "guildIcon": { "type": "string", "maxLength": 500 },
+        "guildAccent": { "type": "string", "minLength": 4, "maxLength": 16 },
+        "role": { "type": "string", "enum": ["owner", "admin", "moderator", "member"] },
+        "joinedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["guildId", "uid", "guildName", "guildIcon", "guildAccent", "role", "joinedAt"]
+    },
+    "AppNotification": {
+      "title": "AppNotification",
+      "description": "Real-time user notification item.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "type": { "type": "string", "enum": ["friend_request", "friend_accept", "mention", "dm", "guild_invite", "role_update"] },
+        "title": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "body": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "actorId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "actorName": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "actorAvatar": { "type": "string", "maxLength": 500 },
+        "targetType": { "type": "string", "enum": ["guild", "dm", "friends"] },
+        "targetId": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "type", "title", "body", "actorId", "actorName", "actorAvatar", "targetType", "targetId", "read", "createdAt"]
+    },
+    "Guild": {
+      "title": "Guild",
+      "description": "Community server workspace.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 60 },
+        "description": { "type": "string", "maxLength": 300 },
+        "iconUrl": { "type": "string", "maxLength": 500 },
+        "accentColor": { "type": "string", "minLength": 4, "maxLength": 16 },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "inviteCode": { "type": "string", "minLength": 6, "maxLength": 16, "pattern": "^[A-Z0-9]+$" },
+        "isPublic": { "type": "boolean" },
+        "memberCount": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "description", "iconUrl", "accentColor", "ownerId", "inviteCode", "isPublic", "memberCount", "createdAt", "updatedAt"]
+    },
+    "GuildInvite": {
+      "title": "GuildInvite",
+      "description": "Invite code lookup record mapping an invite code to a guild.",
+      "type": "object",
+      "properties": {
+        "inviteCode": { "type": "string", "minLength": 6, "maxLength": 16, "pattern": "^[A-Z0-9]+$" },
+        "guildId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "guildName": { "type": "string", "minLength": 2, "maxLength": 60 },
+        "guildDescription": { "type": "string", "maxLength": 300 },
+        "guildIcon": { "type": "string", "maxLength": 500 },
+        "guildAccent": { "type": "string", "minLength": 4, "maxLength": 16 },
+        "createdBy": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["inviteCode", "guildId", "guildName", "guildDescription", "guildIcon", "guildAccent", "createdBy", "createdAt"]
+    },
+    "GuildMember": {
+      "title": "GuildMember",
+      "description": "Membership record and role assignment inside a guild.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "guildId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "username": { "type": "string", "minLength": 3, "maxLength": 32 },
+        "avatarUrl": { "type": "string", "maxLength": 500 },
+        "role": { "type": "string", "enum": ["owner", "admin", "moderator", "member"] },
+        "customRoleId": { "type": "string", "maxLength": 128 },
+        "customRoleName": { "type": "string", "maxLength": 32 },
+        "customRoleColor": { "type": "string", "maxLength": 16 },
+        "inviteCodeUsed": { "type": "string", "maxLength": 16 },
+        "joinedAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "guildId", "displayName", "username", "avatarUrl", "role", "customRoleId", "customRoleName", "customRoleColor", "inviteCodeUsed", "joinedAt", "updatedAt"]
+    },
+    "GuildRole": {
+      "title": "GuildRole",
+      "description": "Custom guild role with color and permission flags.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "guildId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "color": { "type": "string", "minLength": 4, "maxLength": 16 },
+        "permissions": { "type": "array" },
+        "position": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "guildId", "name", "color", "permissions", "position", "createdAt", "updatedAt"]
+    },
+    "GuildChannel": {
+      "title": "GuildChannel",
+      "description": "Text or voice channel inside a Clerk server.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "guildId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 48, "pattern": "^[a-z0-9\\-_]+$" },
+        "type": { "type": "string", "enum": ["text", "voice"] },
+        "topic": { "type": "string", "maxLength": 200 },
+        "category": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "isPrivate": { "type": "boolean" },
+        "position": { "type": "integer" },
+        "createdBy": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "guildId", "name", "type", "topic", "category", "isPrivate", "position", "createdBy", "createdAt", "updatedAt"]
+    },
+    "VoiceParticipant": {
+      "title": "VoiceParticipant",
+      "description": "Live member presence inside a server voice channel.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "guildId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "channelId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "username": { "type": "string", "minLength": 3, "maxLength": 32 },
+        "avatarUrl": { "type": "string", "maxLength": 500 },
+        "accentColor": { "type": "string", "minLength": 4, "maxLength": 16 },
+        "muted": { "type": "boolean" },
+        "deafened": { "type": "boolean" },
+        "speaking": { "type": "boolean" },
+        "joinedAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "guildId", "channelId", "displayName", "username", "avatarUrl", "accentColor", "muted", "deafened", "speaking", "joinedAt", "updatedAt"]
+    },
+    "ChannelMessage": {
+      "title": "ChannelMessage",
+      "description": "Real-time text message inside a guild channel.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "guildId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "channelId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorName": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "authorAvatar": { "type": "string", "maxLength": 500 },
+        "authorRole": { "type": "string", "maxLength": 32 },
+        "authorRoleColor": { "type": "string", "maxLength": 16 },
+        "content": { "type": "string", "maxLength": 2000 },
+        "attachmentUrl": { "type": "string", "maxLength": 500 },
+        "attachmentName": { "type": "string", "maxLength": 120 },
+        "attachmentType": { "type": "string", "maxLength": 64 },
+        "replyToId": { "type": "string", "maxLength": 128 },
+        "replyToSnippet": { "type": "string", "maxLength": 160 },
+        "replyToAuthor": { "type": "string", "maxLength": 40 },
+        "edited": { "type": "boolean" },
+        "pinned": { "type": "boolean" },
+        "reactionTokens": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "guildId", "channelId", "authorId", "authorName", "authorAvatar", "authorRole", "authorRoleColor", "content", "attachmentUrl", "attachmentName", "attachmentType", "replyToId", "replyToSnippet", "replyToAuthor", "edited", "pinned", "reactionTokens", "createdAt", "updatedAt"]
+    },
+    "FriendRequest": {
+      "title": "FriendRequest",
+      "description": "Directed friend request between two users.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 3, "maxLength": 258, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "fromId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "fromName": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "fromUsername": { "type": "string", "minLength": 3, "maxLength": 32 },
+        "fromAvatar": { "type": "string", "maxLength": 500 },
+        "toId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "toName": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "toUsername": { "type": "string", "minLength": 3, "maxLength": 32 },
+        "toAvatar": { "type": "string", "maxLength": 500 },
+        "status": { "type": "string", "enum": ["pending", "accepted", "declined"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "fromId", "fromName", "fromUsername", "fromAvatar", "toId", "toName", "toUsername", "toAvatar", "status", "createdAt", "updatedAt"]
+    },
+    "Friendship": {
+      "title": "Friendship",
+      "description": "Mutual friendship record between two users.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 3, "maxLength": 258, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "participants": { "type": "array" },
+        "uid1": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "uid2": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "participants", "uid1", "uid2", "createdAt"]
+    },
+    "DmThread": {
+      "title": "DmThread",
+      "description": "Direct message conversation between two users.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 3, "maxLength": 258, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "participants": { "type": "array" },
+        "p1Uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "p1Name": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "p1Username": { "type": "string", "minLength": 3, "maxLength": 32 },
+        "p1Avatar": { "type": "string", "maxLength": 500 },
+        "p2Uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "p2Name": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "p2Username": { "type": "string", "minLength": 3, "maxLength": 32 },
+        "p2Avatar": { "type": "string", "maxLength": 500 },
+        "lastMessage": { "type": "string", "maxLength": 200 },
+        "lastSenderId": { "type": "string", "maxLength": 128 },
+        "lastMessageAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "participants", "p1Uid", "p1Name", "p1Username", "p1Avatar", "p2Uid", "p2Name", "p2Username", "p2Avatar", "lastMessage", "lastSenderId", "lastMessageAt", "createdAt", "updatedAt"]
+    },
+    "DmMessage": {
+      "title": "DmMessage",
+      "description": "Real-time direct message inside a DM thread.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "threadId": { "type": "string", "minLength": 3, "maxLength": 258, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorName": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "authorAvatar": { "type": "string", "maxLength": 500 },
+        "content": { "type": "string", "maxLength": 2000 },
+        "attachmentUrl": { "type": "string", "maxLength": 500 },
+        "attachmentName": { "type": "string", "maxLength": 120 },
+        "attachmentType": { "type": "string", "maxLength": 64 },
+        "edited": { "type": "boolean" },
+        "reactionTokens": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "threadId", "authorId", "authorName", "authorAvatar", "content", "attachmentUrl", "attachmentName", "attachmentType", "edited", "reactionTokens", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Public user profiles directory."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateAccount" },
+      "description": "Owner-only PII account document."
+    },
+    "/users/{userId}/guildLinks/{guildId}": {
+      "schema": { "$ref": "#/entities/UserGuildLink" },
+      "description": "User's joined guilds index."
+    },
+    "/users/{userId}/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/AppNotification" },
+      "description": "User notification inbox."
+    },
+    "/users/{userId}/sessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/UserSession" },
+      "description": "User active login sessions."
+    },
+    "/usernames/{username}": {
+      "schema": { "$ref": "#/entities/UsernameClaim" },
+      "description": "Unique username availability reservation without PII."
+    },
+    "/guilds/{guildId}": {
+      "schema": { "$ref": "#/entities/Guild" },
+      "description": "Community servers."
+    },
+    "/invites/{inviteCode}": {
+      "schema": { "$ref": "#/entities/GuildInvite" },
+      "description": "Secret-code lookup for guild invites."
+    },
+    "/guilds/{guildId}/members/{memberId}": {
+      "schema": { "$ref": "#/entities/GuildMember" },
+      "description": "Guild members and roles."
+    },
+    "/guilds/{guildId}/roles/{roleId}": {
+      "schema": { "$ref": "#/entities/GuildRole" },
+      "description": "Custom roles inside a guild."
+    },
+    "/guilds/{guildId}/channels/{channelId}": {
+      "schema": { "$ref": "#/entities/GuildChannel" },
+      "description": "Text and voice channels inside a server."
+    },
+    "/guilds/{guildId}/channels/{channelId}/voiceParticipants/{participantId}": {
+      "schema": { "$ref": "#/entities/VoiceParticipant" },
+      "description": "Active voice channel participants."
+    },
+    "/guilds/{guildId}/channels/{channelId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChannelMessage" },
+      "description": "Real-time messages inside a guild channel."
+    },
+    "/friendRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/FriendRequest" },
+      "description": "Pending and resolved friend requests."
+    },
+    "/friendships/{friendshipId}": {
+      "schema": { "$ref": "#/entities/Friendship" },
+      "description": "Mutual friendships."
+    },
+    "/dmThreads/{threadId}": {
+      "schema": { "$ref": "#/entities/DmThread" },
+      "description": "Direct message conversation threads."
+    },
+    "/dmThreads/{threadId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/DmMessage" },
+      "description": "Direct messages within a DM thread."
+    }
+  }
+}

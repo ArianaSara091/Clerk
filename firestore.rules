@@ -1,0 +1,944 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: deny everything by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Core Primitives
+    // -------------------------------------------------------------------------
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidUsername(name) {
+      return name is string && name.size() >= 3 && name.size() <= 32 && name.matches('^[a-z0-9_.\\-]+$');
+    }
+
+    function isValidCompositeId(id) {
+      return id is string && id.size() >= 3 && id.size() <= 258 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidInviteCode(code) {
+      return code is string && code.size() >= 6 && code.size() <= 16 && code.matches('^[A-Z0-9]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && (
+        request.auth.token.email_verified == true ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isVerified == true)
+      );
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isValidStatus(status) {
+      return status in ['online', 'idle', 'dnd', 'offline'];
+    }
+
+    function isValidRoleName(role) {
+      return role in ['owner', 'admin', 'moderator', 'member'];
+    }
+
+    function memberDocPath(guildId, uid) {
+      return /databases/$(database)/documents/guilds/$(guildId)/members/$(uid);
+    }
+
+    function guildDocPath(guildId) {
+      return /databases/$(database)/documents/guilds/$(guildId);
+    }
+
+    function isGuildMember(guildId) {
+      return isSignedIn() && exists(memberDocPath(guildId, request.auth.uid));
+    }
+
+    function getGuildMemberRole(guildId) {
+      return get(memberDocPath(guildId, request.auth.uid)).data.role;
+    }
+
+    function isGuildAdminOrOwner(guildId) {
+      return isGuildMember(guildId) && getGuildMemberRole(guildId) in ['owner', 'admin'];
+    }
+
+    function isGuildModOrHigher(guildId) {
+      return isGuildMember(guildId) && getGuildMemberRole(guildId) in ['owner', 'admin', 'moderator'];
+    }
+
+    function isAcceptedFriendPair(uidA, uidB) {
+      let path1 = /databases/$(database)/documents/friendRequests/$(uidA + '_' + uidB);
+      let path2 = /databases/$(database)/documents/friendRequests/$(uidB + '_' + uidA);
+      return (existsAfter(path1) && getAfter(path1).data.status == 'accepted') ||
+             (existsAfter(path2) && getAfter(path2).data.status == 'accepted');
+    }
+
+    // -------------------------------------------------------------------------
+    // Entity Validation Blueprints
+    // -------------------------------------------------------------------------
+    function isValidLinkedDiscord(ld) {
+      return ld is map
+        && ld.keys().hasAll(['id', 'username', 'globalName', 'avatarUrl', 'linkedAt'])
+        && ld.keys().hasOnly(['id', 'username', 'globalName', 'avatarUrl', 'linkedAt'])
+        && ld.id is string && ld.id.size() <= 64
+        && ld.username is string && ld.username.size() <= 64
+        && ld.globalName is string && ld.globalName.size() <= 64
+        && ld.avatarUrl is string && ld.avatarUrl.size() <= 500
+        && ld.linkedAt is string && ld.linkedAt.size() <= 64;
+    }
+
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll([
+        'uid', 'displayName', 'username', 'avatarUrl', 'bio', 'accentColor',
+        'status', 'customStatus', 'isVerified', 'twoFactorEnabled', 'linkedDiscord',
+        'visibility', 'lastSeenAt', 'createdAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'uid', 'displayName', 'username', 'avatarUrl', 'bio', 'accentColor',
+        'status', 'customStatus', 'isVerified', 'twoFactorEnabled', 'linkedDiscord',
+        'visibility', 'lastSeenAt', 'createdAt', 'updatedAt'
+      ])
+      && data.uid == userId
+      && isValidId(data.uid)
+      && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 40
+      && isValidUsername(data.username)
+      && data.avatarUrl is string && data.avatarUrl.size() <= 500
+      && data.bio is string && data.bio.size() <= 240
+      && data.accentColor is string && data.accentColor.size() >= 4 && data.accentColor.size() <= 16
+      && isValidStatus(data.status)
+      && data.customStatus is string && data.customStatus.size() <= 80
+      && data.isVerified is bool
+      && data.twoFactorEnabled is bool
+      && isValidLinkedDiscord(data.linkedDiscord)
+      && data.visibility == 'public'
+      && data.lastSeenAt is timestamp
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivateAccount(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'dateOfBirth', 'notificationsEnabled', 'twoFactorEnabled', 'linkedDiscordEmail', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'dateOfBirth', 'notificationsEnabled', 'twoFactorEnabled', 'linkedDiscordEmail', 'updatedAt'])
+        && data.uid == userId
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && data.dateOfBirth is string && data.dateOfBirth.size() <= 16
+        && data.notificationsEnabled is bool
+        && data.twoFactorEnabled is bool
+        && data.linkedDiscordEmail is string && data.linkedDiscordEmail.size() <= 160
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUsernameClaim(data, username) {
+      return data.keys().hasAll(['username', 'uid', 'encryptedHint', 'createdAt'])
+        && data.keys().hasOnly(['username', 'uid', 'encryptedHint', 'createdAt'])
+        && data.username == username
+        && isValidUsername(data.username)
+        && isValidId(data.uid)
+        && data.encryptedHint is string && data.encryptedHint.size() <= 500
+        && data.createdAt is timestamp;
+    }
+
+    function isValidUserSession(data, userId, sessionId) {
+      return data.keys().hasAll(['id', 'uid', 'deviceLabel', 'rememberMe', 'revoked', 'createdAt', 'lastActiveAt'])
+        && data.keys().hasOnly(['id', 'uid', 'deviceLabel', 'rememberMe', 'revoked', 'createdAt', 'lastActiveAt'])
+        && data.id == sessionId
+        && data.uid == userId
+        && data.deviceLabel is string && data.deviceLabel.size() >= 1 && data.deviceLabel.size() <= 120
+        && data.rememberMe is bool
+        && data.revoked is bool
+        && data.createdAt is timestamp
+        && data.lastActiveAt is timestamp;
+    }
+
+    function isValidUserGuildLink(data, userId, guildId) {
+      return data.keys().hasAll(['guildId', 'uid', 'guildName', 'guildIcon', 'guildAccent', 'role', 'joinedAt'])
+        && data.keys().hasOnly(['guildId', 'uid', 'guildName', 'guildIcon', 'guildAccent', 'role', 'joinedAt'])
+        && data.uid == userId
+        && data.guildId == guildId
+        && data.guildName is string && data.guildName.size() >= 2 && data.guildName.size() <= 60
+        && data.guildIcon is string && data.guildIcon.size() <= 500
+        && data.guildAccent is string && data.guildAccent.size() >= 4 && data.guildAccent.size() <= 16
+        && isValidRoleName(data.role)
+        && data.joinedAt is timestamp;
+    }
+
+    function isValidAppNotification(data, userId, notificationId) {
+      return data.keys().hasAll([
+        'id', 'userId', 'type', 'title', 'body', 'actorId', 'actorName',
+        'actorAvatar', 'targetType', 'targetId', 'read', 'createdAt'
+      ]) && data.keys().hasOnly([
+        'id', 'userId', 'type', 'title', 'body', 'actorId', 'actorName',
+        'actorAvatar', 'targetType', 'targetId', 'read', 'createdAt'
+      ])
+      && data.id == notificationId
+      && data.userId == userId
+      && data.type in ['friend_request', 'friend_accept', 'mention', 'dm', 'guild_invite', 'role_update']
+      && data.title is string && data.title.size() >= 1 && data.title.size() <= 100
+      && data.body is string && data.body.size() >= 1 && data.body.size() <= 240
+      && isValidId(data.actorId)
+      && data.actorName is string && data.actorName.size() >= 1 && data.actorName.size() <= 40
+      && data.actorAvatar is string && data.actorAvatar.size() <= 500
+      && data.targetType in ['guild', 'dm', 'friends']
+      && data.targetId is string && data.targetId.size() >= 1 && data.targetId.size() <= 200
+      && data.read is bool
+      && data.createdAt is timestamp;
+    }
+
+    function isValidGuild(data, guildId) {
+      return data.keys().hasAll([
+        'id', 'name', 'description', 'iconUrl', 'accentColor', 'ownerId',
+        'inviteCode', 'isPublic', 'memberCount', 'createdAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'id', 'name', 'description', 'iconUrl', 'accentColor', 'ownerId',
+        'inviteCode', 'isPublic', 'memberCount', 'createdAt', 'updatedAt'
+      ])
+      && data.id == guildId
+      && data.name is string && data.name.size() >= 2 && data.name.size() <= 60
+      && data.description is string && data.description.size() <= 300
+      && data.iconUrl is string && data.iconUrl.size() <= 500
+      && data.accentColor is string && data.accentColor.size() >= 4 && data.accentColor.size() <= 16
+      && isValidId(data.ownerId)
+      && isValidInviteCode(data.inviteCode)
+      && data.isPublic is bool
+      && data.memberCount is int && data.memberCount >= 1 && data.memberCount <= 1000000
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidGuildInvite(data, inviteCode) {
+      return data.keys().hasAll([
+        'inviteCode', 'guildId', 'guildName', 'guildDescription',
+        'guildIcon', 'guildAccent', 'createdBy', 'createdAt'
+      ]) && data.keys().hasOnly([
+        'inviteCode', 'guildId', 'guildName', 'guildDescription',
+        'guildIcon', 'guildAccent', 'createdBy', 'createdAt'
+      ])
+      && data.inviteCode == inviteCode
+      && isValidInviteCode(data.inviteCode)
+      && isValidId(data.guildId)
+      && data.guildName is string && data.guildName.size() >= 2 && data.guildName.size() <= 60
+      && data.guildDescription is string && data.guildDescription.size() <= 300
+      && data.guildIcon is string && data.guildIcon.size() <= 500
+      && data.guildAccent is string && data.guildAccent.size() >= 4 && data.guildAccent.size() <= 16
+      && isValidId(data.createdBy)
+      && data.createdAt is timestamp;
+    }
+
+    function isValidGuildMember(data, guildId, memberId) {
+      return data.keys().hasAll([
+        'uid', 'guildId', 'displayName', 'username', 'avatarUrl', 'role',
+        'customRoleId', 'customRoleName', 'customRoleColor', 'inviteCodeUsed',
+        'joinedAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'uid', 'guildId', 'displayName', 'username', 'avatarUrl', 'role',
+        'customRoleId', 'customRoleName', 'customRoleColor', 'inviteCodeUsed',
+        'joinedAt', 'updatedAt'
+      ])
+      && data.uid == memberId
+      && data.guildId == guildId
+      && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 40
+      && isValidUsername(data.username)
+      && data.avatarUrl is string && data.avatarUrl.size() <= 500
+      && isValidRoleName(data.role)
+      && data.customRoleId is string && data.customRoleId.size() <= 128
+      && data.customRoleName is string && data.customRoleName.size() <= 32
+      && data.customRoleColor is string && data.customRoleColor.size() <= 16
+      && data.inviteCodeUsed is string && data.inviteCodeUsed.size() <= 16
+      && data.joinedAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidGuildRole(data, guildId, roleId) {
+      return data.keys().hasAll([
+        'id', 'guildId', 'name', 'color', 'permissions', 'position', 'createdAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'id', 'guildId', 'name', 'color', 'permissions', 'position', 'createdAt', 'updatedAt'
+      ])
+      && data.id == roleId
+      && data.guildId == guildId
+      && data.name is string && data.name.size() >= 1 && data.name.size() <= 32
+      && data.color is string && data.color.size() >= 4 && data.color.size() <= 16
+      && data.permissions is list && data.permissions.size() <= 10
+      && (data.permissions.size() == 0 || data.permissions[0] is string)
+      && data.position is int && data.position >= 0 && data.position <= 100
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidGuildChannel(data, guildId, channelId) {
+      return data.keys().hasAll([
+        'id', 'guildId', 'name', 'type', 'topic', 'category', 'isPrivate',
+        'position', 'createdBy', 'createdAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'id', 'guildId', 'name', 'type', 'topic', 'category', 'isPrivate',
+        'position', 'createdBy', 'createdAt', 'updatedAt'
+      ])
+      && data.id == channelId
+      && data.guildId == guildId
+      && data.name is string && data.name.size() >= 1 && data.name.size() <= 48
+      && data.name.matches('^[a-z0-9\\-_]+$')
+      && data.type in ['text', 'voice']
+      && data.topic is string && data.topic.size() <= 200
+      && data.category is string && data.category.size() >= 1 && data.category.size() <= 40
+      && data.isPrivate is bool
+      && data.position is int && data.position >= 0 && data.position <= 500
+      && isValidId(data.createdBy)
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidVoiceParticipant(data, guildId, channelId, participantId) {
+      return data.keys().hasAll([
+        'uid', 'guildId', 'channelId', 'displayName', 'username', 'avatarUrl',
+        'accentColor', 'muted', 'deafened', 'speaking', 'joinedAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'uid', 'guildId', 'channelId', 'displayName', 'username', 'avatarUrl',
+        'accentColor', 'muted', 'deafened', 'speaking', 'joinedAt', 'updatedAt'
+      ])
+      && data.uid == participantId
+      && data.guildId == guildId
+      && data.channelId == channelId
+      && isValidId(data.uid)
+      && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 40
+      && isValidUsername(data.username)
+      && data.avatarUrl is string && data.avatarUrl.size() <= 500
+      && data.accentColor is string && data.accentColor.size() >= 4 && data.accentColor.size() <= 16
+      && data.muted is bool
+      && data.deafened is bool
+      && data.speaking is bool
+      && data.joinedAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidChannelMessage(data, guildId, channelId, messageId) {
+      return data.keys().hasAll([
+        'id', 'guildId', 'channelId', 'authorId', 'authorName', 'authorAvatar',
+        'authorRole', 'authorRoleColor', 'content', 'attachmentUrl',
+        'attachmentName', 'attachmentType', 'replyToId', 'replyToSnippet',
+        'replyToAuthor', 'edited', 'pinned', 'reactionTokens', 'createdAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'id', 'guildId', 'channelId', 'authorId', 'authorName', 'authorAvatar',
+        'authorRole', 'authorRoleColor', 'content', 'attachmentUrl',
+        'attachmentName', 'attachmentType', 'replyToId', 'replyToSnippet',
+        'replyToAuthor', 'edited', 'pinned', 'reactionTokens', 'createdAt', 'updatedAt'
+      ])
+      && data.id == messageId
+      && data.guildId == guildId
+      && data.channelId == channelId
+      && isValidId(data.authorId)
+      && data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 40
+      && data.authorAvatar is string && data.authorAvatar.size() <= 500
+      && data.authorRole is string && data.authorRole.size() <= 32
+      && data.authorRoleColor is string && data.authorRoleColor.size() <= 16
+      && data.content is string && data.content.size() <= 2000
+      && data.attachmentUrl is string && data.attachmentUrl.size() <= 500
+      && data.attachmentName is string && data.attachmentName.size() <= 120
+      && data.attachmentType is string && data.attachmentType.size() <= 64
+      && (data.content.size() > 0 || data.attachmentUrl.size() > 0)
+      && data.replyToId is string && data.replyToId.size() <= 128
+      && data.replyToSnippet is string && data.replyToSnippet.size() <= 160
+      && data.replyToAuthor is string && data.replyToAuthor.size() <= 40
+      && data.edited is bool
+      && data.pinned is bool
+      && data.reactionTokens is list && data.reactionTokens.size() <= 100
+      && (data.reactionTokens.size() == 0 || data.reactionTokens[0] is string)
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidFriendRequest(data, requestId) {
+      return data.keys().hasAll([
+        'id', 'fromId', 'fromName', 'fromUsername', 'fromAvatar',
+        'toId', 'toName', 'toUsername', 'toAvatar', 'status', 'createdAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'id', 'fromId', 'fromName', 'fromUsername', 'fromAvatar',
+        'toId', 'toName', 'toUsername', 'toAvatar', 'status', 'createdAt', 'updatedAt'
+      ])
+      && data.id == requestId
+      && isValidId(data.fromId)
+      && isValidId(data.toId)
+      && data.fromId != data.toId
+      && data.fromName is string && data.fromName.size() >= 1 && data.fromName.size() <= 40
+      && isValidUsername(data.fromUsername)
+      && data.fromAvatar is string && data.fromAvatar.size() <= 500
+      && data.toName is string && data.toName.size() >= 1 && data.toName.size() <= 40
+      && isValidUsername(data.toUsername)
+      && data.toAvatar is string && data.toAvatar.size() <= 500
+      && data.status in ['pending', 'accepted', 'declined']
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidFriendship(data, friendshipId) {
+      return data.keys().hasAll(['id', 'participants', 'uid1', 'uid2', 'createdAt'])
+        && data.keys().hasOnly(['id', 'participants', 'uid1', 'uid2', 'createdAt'])
+        && data.id == friendshipId
+        && isValidId(data.uid1)
+        && isValidId(data.uid2)
+        && data.uid1 != data.uid2
+        && data.participants is list && data.participants.size() == 2
+        && data.uid1 in data.participants && data.uid2 in data.participants
+        && data.createdAt is timestamp;
+    }
+
+    function isValidDmThread(data, threadId) {
+      return data.keys().hasAll([
+        'id', 'participants', 'p1Uid', 'p1Name', 'p1Username', 'p1Avatar',
+        'p2Uid', 'p2Name', 'p2Username', 'p2Avatar',
+        'lastMessage', 'lastSenderId', 'lastMessageAt', 'createdAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'id', 'participants', 'p1Uid', 'p1Name', 'p1Username', 'p1Avatar',
+        'p2Uid', 'p2Name', 'p2Username', 'p2Avatar',
+        'lastMessage', 'lastSenderId', 'lastMessageAt', 'createdAt', 'updatedAt'
+      ])
+      && data.id == threadId
+      && isValidId(data.p1Uid)
+      && isValidId(data.p2Uid)
+      && data.p1Uid != data.p2Uid
+      && data.participants is list && data.participants.size() == 2
+      && data.p1Uid in data.participants && data.p2Uid in data.participants
+      && data.p1Name is string && data.p1Name.size() >= 1 && data.p1Name.size() <= 40
+      && isValidUsername(data.p1Username)
+      && data.p1Avatar is string && data.p1Avatar.size() <= 500
+      && data.p2Name is string && data.p2Name.size() >= 1 && data.p2Name.size() <= 40
+      && isValidUsername(data.p2Username)
+      && data.p2Avatar is string && data.p2Avatar.size() <= 500
+      && data.lastMessage is string && data.lastMessage.size() <= 200
+      && data.lastSenderId is string && data.lastSenderId.size() <= 128
+      && data.lastMessageAt is timestamp
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidDmMessage(data, threadId, messageId) {
+      return data.keys().hasAll([
+        'id', 'threadId', 'authorId', 'authorName', 'authorAvatar', 'content',
+        'attachmentUrl', 'attachmentName', 'attachmentType', 'edited',
+        'reactionTokens', 'createdAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'id', 'threadId', 'authorId', 'authorName', 'authorAvatar', 'content',
+        'attachmentUrl', 'attachmentName', 'attachmentType', 'edited',
+        'reactionTokens', 'createdAt', 'updatedAt'
+      ])
+      && data.id == messageId
+      && data.threadId == threadId
+      && isValidId(data.authorId)
+      && data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 40
+      && data.authorAvatar is string && data.authorAvatar.size() <= 500
+      && data.content is string && data.content.size() <= 2000
+      && data.attachmentUrl is string && data.attachmentUrl.size() <= 500
+      && data.attachmentName is string && data.attachmentName.size() <= 120
+      && data.attachmentType is string && data.attachmentType.size() <= 64
+      && (data.content.size() > 0 || data.attachmentUrl.size() > 0)
+      && data.edited is bool
+      && data.reactionTokens is list && data.reactionTokens.size() <= 100
+      && (data.reactionTokens.size() == 0 || data.reactionTokens[0] is string)
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    // -------------------------------------------------------------------------
+    // Collection Rules
+    // -------------------------------------------------------------------------
+
+    // 0. Public Username Availability Reservation (PII-free)
+    match /usernames/{username} {
+      allow get: if isValidUsername(username);
+      allow list: if false;
+      allow create: if isSignedIn()
+        && isValidUsername(username)
+        && isValidUsernameClaim(incoming(), username)
+        && incoming().uid == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update: if isSignedIn()
+        && isValidUsername(username)
+        && existing().uid == request.auth.uid
+        && isValidUsernameClaim(incoming(), username)
+        && incoming().uid == existing().uid
+        && incoming().username == existing().username
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['encryptedHint']);
+      allow delete: if isSignedIn()
+        && isValidUsername(username)
+        && existing().uid == request.auth.uid;
+    }
+
+    // 1. Public User Profiles (PII-free directory)
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId);
+      allow list: if isSignedIn() && resource.data.visibility == 'public';
+      allow create: if isSignedIn()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && incoming().lastSeenAt == request.time;
+      allow update: if isSignedIn()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName', 'username', 'avatarUrl', 'bio', 'accentColor',
+          'status', 'customStatus', 'isVerified', 'twoFactorEnabled', 'linkedDiscord',
+          'lastSeenAt', 'updatedAt'
+        ]);
+      allow delete: if false;
+
+      // 1a. Isolated Private Account (PII: email, dateOfBirth, linkedDiscordEmail)
+      match /private/{docId} {
+        allow get: if isOwner(userId) && isValidId(docId);
+        allow list: if false;
+        allow create: if isSignedIn()
+          && isOwner(userId)
+          && docId == 'account'
+          && isValidUserPrivateAccount(incoming(), userId)
+          && incoming().updatedAt == request.time;
+        allow update: if isSignedIn()
+          && isOwner(userId)
+          && docId == 'account'
+          && isValidUserPrivateAccount(incoming(), userId)
+          && incoming().uid == existing().uid
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'email', 'dateOfBirth', 'notificationsEnabled', 'twoFactorEnabled', 'linkedDiscordEmail', 'updatedAt'
+          ]);
+        allow delete: if false;
+      }
+
+      // 1b. User Active Sessions
+      match /sessions/{sessionId} {
+        allow get: if isOwner(userId) && isValidId(sessionId);
+        allow list: if isOwner(userId);
+        allow create: if isSignedIn()
+          && isOwner(userId)
+          && isValidId(sessionId)
+          && isValidUserSession(incoming(), userId, sessionId)
+          && incoming().revoked == false
+          && incoming().createdAt == request.time
+          && incoming().lastActiveAt == request.time;
+        allow update: if isSignedIn()
+          && isOwner(userId)
+          && isValidId(sessionId)
+          && isValidUserSession(incoming(), userId, sessionId)
+          && incoming().id == existing().id
+          && incoming().uid == existing().uid
+          && incoming().createdAt == existing().createdAt
+          && incoming().lastActiveAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['revoked', 'lastActiveAt']);
+        allow delete: if isSignedIn() && isOwner(userId) && isValidId(sessionId);
+      }
+
+      // 1c. User Guild Membership Links
+      match /guildLinks/{guildId} {
+        allow get: if isOwner(userId) && isValidId(guildId);
+        allow list: if isOwner(userId);
+        allow create: if isVerified()
+          && isOwner(userId)
+          && isValidId(guildId)
+          && isValidUserGuildLink(incoming(), userId, guildId)
+          && incoming().joinedAt == request.time
+          && existsAfter(memberDocPath(guildId, userId));
+        allow update: if isVerified()
+          && isValidId(guildId)
+          && (isOwner(userId) || isGuildAdminOrOwner(guildId))
+          && isValidUserGuildLink(incoming(), userId, guildId)
+          && incoming().uid == existing().uid
+          && incoming().guildId == existing().guildId
+          && incoming().joinedAt == existing().joinedAt
+          && incoming().diff(existing()).affectedKeys().hasOnly(['guildName', 'guildIcon', 'guildAccent', 'role']);
+        allow delete: if isVerified()
+          && isValidId(guildId)
+          && (isOwner(userId) || isGuildAdminOrOwner(guildId));
+      }
+
+      // 1d. User Notifications
+      match /notifications/{notificationId} {
+        allow get: if isOwner(userId) && isValidId(notificationId);
+        allow list: if isOwner(userId);
+        allow create: if isVerified()
+          && isValidId(userId)
+          && isValidId(notificationId)
+          && isValidAppNotification(incoming(), userId, notificationId)
+          && incoming().actorId == request.auth.uid
+          && incoming().read == false
+          && incoming().createdAt == request.time;
+        allow update: if isVerified()
+          && isOwner(userId)
+          && isValidId(notificationId)
+          && isValidAppNotification(incoming(), userId, notificationId)
+          && incoming().createdAt == existing().createdAt
+          && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+        allow delete: if isVerified() && isOwner(userId) && isValidId(notificationId);
+      }
+    }
+
+    // 2. Secret-Code Guild Invites
+    match /invites/{inviteCode} {
+      allow get: if isSignedIn() && isValidInviteCode(inviteCode);
+      allow list: if false;
+      allow create: if isVerified()
+        && isValidInviteCode(inviteCode)
+        && isValidGuildInvite(incoming(), inviteCode)
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && existsAfter(guildDocPath(incoming().guildId));
+      allow update: if isVerified()
+        && isValidInviteCode(inviteCode)
+        && isValidGuildInvite(incoming(), inviteCode)
+        && isGuildAdminOrOwner(existing().guildId)
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['guildName', 'guildDescription', 'guildIcon', 'guildAccent']);
+      allow delete: if isVerified()
+        && isValidInviteCode(inviteCode)
+        && isGuildAdminOrOwner(existing().guildId);
+    }
+
+    // 3. Guilds & Subcollections
+    match /guilds/{guildId} {
+      allow get: if isSignedIn()
+        && isValidId(guildId)
+        && (resource.data.isPublic == true || resource.data.ownerId == request.auth.uid || isGuildMember(guildId));
+      allow list: if isSignedIn() && resource.data.isPublic == true;
+      allow create: if isVerified()
+        && isValidId(guildId)
+        && isValidGuild(incoming(), guildId)
+        && incoming().ownerId == request.auth.uid
+        && incoming().memberCount == 1
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && existsAfter(memberDocPath(guildId, request.auth.uid));
+      allow update: if isVerified()
+        && isValidId(guildId)
+        && isValidGuild(incoming(), guildId)
+        && incoming().id == existing().id
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isGuildAdminOrOwner(guildId) && incoming().diff(existing()).affectedKeys().hasOnly([
+            'name', 'description', 'iconUrl', 'accentColor', 'inviteCode', 'isPublic', 'updatedAt'
+          ])) ||
+          (incoming().diff(existing()).affectedKeys().hasOnly(['memberCount', 'updatedAt']) && (
+            (incoming().memberCount == existing().memberCount + 1 && !exists(memberDocPath(guildId, request.auth.uid)) && existsAfter(memberDocPath(guildId, request.auth.uid))) ||
+            (incoming().memberCount == existing().memberCount - 1 && (
+              (exists(memberDocPath(guildId, request.auth.uid)) && !existsAfter(memberDocPath(guildId, request.auth.uid))) ||
+              isGuildAdminOrOwner(guildId)
+            ))
+          ))
+        );
+      allow delete: if isVerified()
+        && isValidId(guildId)
+        && existing().ownerId == request.auth.uid;
+
+      // 3a. Guild Members
+      match /members/{memberId} {
+        allow get: if isSignedIn() && isValidId(guildId) && isValidId(memberId) && isGuildMember(guildId);
+        allow list: if isSignedIn() && isGuildMember(guildId);
+        allow create: if isVerified()
+          && isValidId(guildId)
+          && isValidId(memberId)
+          && isOwner(memberId)
+          && isValidGuildMember(incoming(), guildId, memberId)
+          && incoming().joinedAt == request.time
+          && incoming().updatedAt == request.time
+          && (
+            (incoming().role == 'owner' && getAfter(guildDocPath(guildId)).data.ownerId == request.auth.uid) ||
+            (incoming().role == 'member' && exists(guildDocPath(guildId)) && (
+              get(guildDocPath(guildId)).data.isPublic == true ||
+              incoming().inviteCodeUsed == get(guildDocPath(guildId)).data.inviteCode
+            ))
+          );
+        allow update: if isVerified()
+          && isValidId(guildId)
+          && isValidId(memberId)
+          && isValidGuildMember(incoming(), guildId, memberId)
+          && incoming().uid == existing().uid
+          && incoming().guildId == existing().guildId
+          && incoming().joinedAt == existing().joinedAt
+          && incoming().updatedAt == request.time
+          && (
+            (isOwner(memberId) && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'username', 'avatarUrl', 'updatedAt'])) ||
+            (isGuildAdminOrOwner(guildId) && existing().role != 'owner' && incoming().role != 'owner' && incoming().diff(existing()).affectedKeys().hasOnly([
+              'role', 'customRoleId', 'customRoleName', 'customRoleColor', 'updatedAt'
+            ]))
+          );
+        allow delete: if isVerified()
+          && isValidId(guildId)
+          && isValidId(memberId)
+          && (
+            (isOwner(memberId) && existing().role != 'owner') ||
+            (isGuildAdminOrOwner(guildId) && existing().role != 'owner')
+          );
+      }
+
+      // 3b. Guild Roles
+      match /roles/{roleId} {
+        allow get: if isSignedIn() && isValidId(guildId) && isValidId(roleId) && isGuildMember(guildId);
+        allow list: if isSignedIn() && isGuildMember(guildId);
+        allow create: if isVerified()
+          && isValidId(guildId)
+          && isValidId(roleId)
+          && isGuildAdminOrOwner(guildId)
+          && isValidGuildRole(incoming(), guildId, roleId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isVerified()
+          && isValidId(guildId)
+          && isValidId(roleId)
+          && isGuildAdminOrOwner(guildId)
+          && isValidGuildRole(incoming(), guildId, roleId)
+          && incoming().id == existing().id
+          && incoming().guildId == existing().guildId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'color', 'permissions', 'position', 'updatedAt']);
+        allow delete: if isVerified() && isValidId(guildId) && isValidId(roleId) && isGuildAdminOrOwner(guildId);
+      }
+
+      // 3c. Guild Text Channels
+      match /channels/{channelId} {
+        allow get: if isSignedIn() && isValidId(guildId) && isValidId(channelId) && isGuildMember(guildId);
+        allow list: if isSignedIn() && isGuildMember(guildId);
+        allow create: if isVerified()
+          && isValidId(guildId)
+          && isValidId(channelId)
+          && isValidGuildChannel(incoming(), guildId, channelId)
+          && incoming().createdBy == request.auth.uid
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && (
+            isGuildAdminOrOwner(guildId) ||
+            getAfter(guildDocPath(guildId)).data.ownerId == request.auth.uid
+          );
+        allow update: if isVerified()
+          && isValidId(guildId)
+          && isValidId(channelId)
+          && isGuildModOrHigher(guildId)
+          && isValidGuildChannel(incoming(), guildId, channelId)
+          && incoming().id == existing().id
+          && incoming().guildId == existing().guildId
+          && incoming().createdBy == existing().createdBy
+          && incoming().createdAt == existing().createdAt
+          && (!('type' in existing()) || incoming().type == existing().type)
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'type', 'topic', 'category', 'isPrivate', 'position', 'updatedAt']);
+        allow delete: if isVerified() && isValidId(guildId) && isValidId(channelId) && isGuildAdminOrOwner(guildId);
+
+        // 3c-i. Channel Messages
+        match /messages/{messageId} {
+          allow get: if isSignedIn() && isValidId(guildId) && isValidId(channelId) && isValidId(messageId) && isGuildMember(guildId);
+          allow list: if isSignedIn() && isGuildMember(guildId);
+          allow create: if isVerified()
+            && isValidId(guildId)
+            && isValidId(channelId)
+            && isValidId(messageId)
+            && isGuildMember(guildId)
+            && exists(/databases/$(database)/documents/guilds/$(guildId)/channels/$(channelId))
+            && isValidChannelMessage(incoming(), guildId, channelId, messageId)
+            && incoming().authorId == request.auth.uid
+            && incoming().edited == false
+            && incoming().pinned == false
+            && incoming().createdAt == request.time
+            && incoming().updatedAt == request.time;
+          allow update: if isVerified()
+            && isValidId(guildId)
+            && isValidId(channelId)
+            && isValidId(messageId)
+            && isGuildMember(guildId)
+            && isValidChannelMessage(incoming(), guildId, channelId, messageId)
+            && incoming().id == existing().id
+            && incoming().guildId == existing().guildId
+            && incoming().channelId == existing().channelId
+            && incoming().authorId == existing().authorId
+            && incoming().createdAt == existing().createdAt
+            && incoming().updatedAt == request.time
+            && (
+              (existing().authorId == request.auth.uid && incoming().edited == true && incoming().diff(existing()).affectedKeys().hasOnly(['content', 'edited', 'updatedAt'])) ||
+              (isGuildModOrHigher(guildId) && incoming().diff(existing()).affectedKeys().hasOnly(['pinned', 'updatedAt'])) ||
+              (incoming().diff(existing()).affectedKeys().hasOnly(['reactionTokens', 'updatedAt']))
+            );
+          allow delete: if isVerified()
+            && isValidId(guildId)
+            && isValidId(channelId)
+            && isValidId(messageId)
+            && (existing().authorId == request.auth.uid || isGuildModOrHigher(guildId));
+        }
+
+        // 3c-ii. Voice Channel Participants
+        match /voiceParticipants/{participantId} {
+          allow get: if isSignedIn() && isValidId(guildId) && isValidId(channelId) && isValidId(participantId) && isGuildMember(guildId);
+          allow list: if isSignedIn() && isGuildMember(guildId);
+          allow create: if isVerified()
+            && isValidId(guildId)
+            && isValidId(channelId)
+            && isValidId(participantId)
+            && isOwner(participantId)
+            && isGuildMember(guildId)
+            && exists(/databases/$(database)/documents/guilds/$(guildId)/channels/$(channelId))
+            && get(/databases/$(database)/documents/guilds/$(guildId)/channels/$(channelId)).data.type == 'voice'
+            && isValidVoiceParticipant(incoming(), guildId, channelId, participantId)
+            && incoming().joinedAt == request.time
+            && incoming().updatedAt == request.time;
+          allow update: if isVerified()
+            && isValidId(guildId)
+            && isValidId(channelId)
+            && isValidId(participantId)
+            && isOwner(participantId)
+            && isGuildMember(guildId)
+            && isValidVoiceParticipant(incoming(), guildId, channelId, participantId)
+            && incoming().uid == existing().uid
+            && incoming().guildId == existing().guildId
+            && incoming().channelId == existing().channelId
+            && incoming().joinedAt == existing().joinedAt
+            && incoming().updatedAt == request.time
+            && incoming().diff(existing()).affectedKeys().hasOnly(['muted', 'deafened', 'speaking', 'displayName', 'username', 'avatarUrl', 'updatedAt']);
+          allow delete: if isSignedIn()
+            && isValidId(guildId)
+            && isValidId(channelId)
+            && isValidId(participantId)
+            && (isOwner(participantId) || isGuildModOrHigher(guildId));
+        }
+      }
+    }
+
+    // 4. Friend Requests
+    match /friendRequests/{requestId} {
+      allow get: if isSignedIn()
+        && isValidCompositeId(requestId)
+        && (resource.data.fromId == request.auth.uid || resource.data.toId == request.auth.uid);
+      allow list: if isSignedIn()
+        && (resource.data.fromId == request.auth.uid || resource.data.toId == request.auth.uid);
+      allow create: if isVerified()
+        && isValidCompositeId(requestId)
+        && isValidFriendRequest(incoming(), requestId)
+        && incoming().fromId == request.auth.uid
+        && incoming().status == 'pending'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/users/$(incoming().toId));
+      allow update: if isVerified()
+        && isValidCompositeId(requestId)
+        && isValidFriendRequest(incoming(), requestId)
+        && existing().toId == request.auth.uid
+        && existing().status == 'pending'
+        && incoming().status in ['accepted', 'declined']
+        && incoming().fromId == existing().fromId
+        && incoming().toId == existing().toId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+      allow delete: if isVerified()
+        && isValidCompositeId(requestId)
+        && (existing().fromId == request.auth.uid || existing().toId == request.auth.uid);
+    }
+
+    // 5. Mutual Friendships
+    match /friendships/{friendshipId} {
+      allow get: if isSignedIn()
+        && isValidCompositeId(friendshipId)
+        && (request.auth.uid in resource.data.participants);
+      allow list: if isSignedIn()
+        && (request.auth.uid in resource.data.participants);
+      allow create: if isVerified()
+        && isValidCompositeId(friendshipId)
+        && isValidFriendship(incoming(), friendshipId)
+        && (request.auth.uid in incoming().participants)
+        && incoming().createdAt == request.time
+        && isAcceptedFriendPair(incoming().uid1, incoming().uid2);
+      allow update: if false;
+      allow delete: if isVerified()
+        && isValidCompositeId(friendshipId)
+        && (request.auth.uid in existing().participants);
+    }
+
+    // 6. Direct Message Threads & Messages
+    match /dmThreads/{threadId} {
+      allow get: if isSignedIn()
+        && isValidCompositeId(threadId)
+        && (request.auth.uid in resource.data.participants);
+      allow list: if isSignedIn()
+        && (request.auth.uid in resource.data.participants);
+      allow create: if isVerified()
+        && isValidCompositeId(threadId)
+        && isValidDmThread(incoming(), threadId)
+        && (request.auth.uid in incoming().participants)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && incoming().lastMessageAt == request.time
+        && exists(/databases/$(database)/documents/users/$(incoming().p1Uid))
+        && exists(/databases/$(database)/documents/users/$(incoming().p2Uid));
+      allow update: if isVerified()
+        && isValidCompositeId(threadId)
+        && (request.auth.uid in existing().participants)
+        && isValidDmThread(incoming(), threadId)
+        && incoming().id == existing().id
+        && incoming().participants == existing().participants
+        && incoming().p1Uid == existing().p1Uid
+        && incoming().p2Uid == existing().p2Uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'lastMessage', 'lastSenderId', 'lastMessageAt', 'updatedAt',
+          'p1Name', 'p1Avatar', 'p2Name', 'p2Avatar'
+        ]);
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow get: if isSignedIn()
+          && isValidCompositeId(threadId)
+          && isValidId(messageId)
+          && (request.auth.uid in get(/databases/$(database)/documents/dmThreads/$(threadId)).data.participants);
+        allow list: if isSignedIn()
+          && (request.auth.uid in get(/databases/$(database)/documents/dmThreads/$(threadId)).data.participants);
+        allow create: if isVerified()
+          && isValidCompositeId(threadId)
+          && isValidId(messageId)
+          && (request.auth.uid in get(/databases/$(database)/documents/dmThreads/$(threadId)).data.participants)
+          && isValidDmMessage(incoming(), threadId, messageId)
+          && incoming().authorId == request.auth.uid
+          && incoming().edited == false
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isVerified()
+          && isValidCompositeId(threadId)
+          && isValidId(messageId)
+          && (request.auth.uid in get(/databases/$(database)/documents/dmThreads/$(threadId)).data.participants)
+          && isValidDmMessage(incoming(), threadId, messageId)
+          && incoming().id == existing().id
+          && incoming().threadId == existing().threadId
+          && incoming().authorId == existing().authorId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            (existing().authorId == request.auth.uid && incoming().edited == true && incoming().diff(existing()).affectedKeys().hasOnly(['content', 'edited', 'updatedAt'])) ||
+            (incoming().diff(existing()).affectedKeys().hasOnly(['reactionTokens', 'updatedAt']))
+          );
+        allow delete: if isVerified()
+          && isValidCompositeId(threadId)
+          && isValidId(messageId)
+          && existing().authorId == request.auth.uid;
+      }
+    }
+  }
+}
