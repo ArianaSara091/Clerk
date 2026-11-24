@@ -61,6 +61,7 @@ export async function openDiscordOAuthPopup(mode: 'login' | 'link'): Promise<{
   discordProof: string;
 }> {
   const urlRes = await fetch(`/api/oauth/discord/url?mode=${encodeURIComponent(mode)}`);
+  const contentType = urlRes.headers.get('content-type') || '';
   const urlData = (await urlRes.json().catch(() => ({}))) as {
     url?: string;
     redirectUri?: string;
@@ -69,6 +70,12 @@ export async function openDiscordOAuthPopup(mode: 'login' | 'link'): Promise<{
   };
 
   if (!urlRes.ok || !urlData.url) {
+    if (!urlData.error && contentType.includes('text/html')) {
+      throw new DiscordOAuthPopupError(
+        'Discord OAuth2 endpoint returned HTML instead of API JSON. Verify Netlify Functions and netlify.toml redirects are deployed.',
+        { redirectUri: `${window.location.origin}/auth/discord/callback` }
+      );
+    }
     throw new DiscordOAuthPopupError(
       urlData.error || 'Discord OAuth2 is unavailable.',
       { needsConfig: urlData.needsConfig, redirectUri: urlData.redirectUri }
@@ -104,6 +111,7 @@ export async function openDiscordOAuthPopup(mode: 'login' | 'link'): Promise<{
     const onMessage = (event: MessageEvent) => {
       const originOk =
         event.origin === window.location.origin ||
+        event.origin.endsWith('.netlify.app') ||
         event.origin.endsWith('.run.app') ||
         event.origin.startsWith('http://localhost') ||
         event.origin.startsWith('http://127.0.0.1');

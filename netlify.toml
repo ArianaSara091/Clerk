@@ -1,0 +1,98 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[functions]
+  node_bundler = "esbuild"
+  included_files = ["firebase-applet-config.json"]
+
+# Health endpoints
+[[redirects]]
+  from = "/health"
+  to = "/.netlify/functions/health"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/health"
+  to = "/.netlify/functions/health"
+  status = 200
+  force = true
+
+# Discord OAuth2 endpoints & callback
+[[redirects]]
+  from = "/api/oauth/discord/config"
+  to = "/.netlify/functions/oauth-discord-config"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/oauth/discord/url"
+  to = "/.netlify/functions/oauth-discord-url"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/auth/discord/callback"
+  to = "/.netlify/functions/auth-discord-callback"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/auth/discord/callback/"
+  to = "/.netlify/functions/auth-discord-callback"
+  status = 200
+  force = true
+
+# Auth, OTP, Brute-force Guard, and Username Login Resolution endpoints
+[[redirects]]
+  from = "/api/auth/otp/send"
+  to = "/.netlify/functions/auth-otp-send"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/auth/otp/verify"
+  to = "/.netlify/functions/auth-otp-verify"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/auth/login-guard"
+  to = "/.netlify/functions/auth-login-guard"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/auth/login-failure"
+  to = "/.netlify/functions/auth-login-failure"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/auth/login-success"
+  to = "/.netlify/functions/auth-login-success"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/auth/encrypt-hint"
+  to = "/.netlify/functions/auth-encrypt-hint"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/auth/resolve-login"
+  to = "/.netlify/functions/auth-resolve-login"
+  status = 200
+  force = true
+
+# SPA fallback for React/Vite client routing
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
